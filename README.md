@@ -12,6 +12,7 @@
 
 [3D列印件](https://github.com/Chen-Wi-Ki/TTGOTS-Dof9-System/tree/main/CAD)
 
+3.7V鋰電池(容量隨意，正負極別接錯就好了)
 
 ## 關於功能部分
 
