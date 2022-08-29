@@ -10,22 +10,43 @@ Adafruit_ST7735 tft = Adafruit_ST7735(16, 17, 23, 5, 9); // CS,A0,SDA,SCK,RESET
 //9軸I2C引腳
 #define SDA_PIN 21
 #define SCL_PIN 22
+MPU9250_asukiaaa mySensor(MPU9250_ADDRESS_AD0_HIGH);//9軸library
 
-BluetoothSerial SerialBT;
-boolean confirmRequestPending = true;
+BluetoothSerial SerialBT;//藍牙Library
+boolean confirmRequestPending = true;//控制藍牙配對的值
 
-MPU9250_asukiaaa mySensor(MPU9250_ADDRESS_AD0_HIGH);
+#define BUTTON_PIN_BITMASK 0x200000000 // 2^33 in hex
+RTC_DATA_ATTR int RTCBootCount = 0; //使用RTC記憶體紀錄喚醒次數
 
 String ComeValue;     //傳來的藍牙數據
 String GetValue;      //傳去的藍芽數據
-
-String TitleSSPName = "Dof9Sys0"; //藍芽通道名稱及開頭名稱,暫定為Dof9Sys+(出廠編號)
+String SPPName="Dof9Sys0";//藍牙名稱+自訂義廠編
 
 float aX, aY, aZ, aSqrt, gX, gY, gZ, mDirection, mX, mY, mZ;//感測值
 
+const int buttonA = 39; 
 const int buttonB = 37; 
+const int buttonC = 36; 
+int ButtonAState = 0;
 int ButtonBState = 0;
+int ButtonCState = 0;
 uint32_t numValTemp;
+
+//喚醒原因輸出
+void print_wakeup_reason(){
+  esp_sleep_wakeup_cause_t wakeup_reason;
+  wakeup_reason = esp_sleep_get_wakeup_cause();
+  switch(wakeup_reason)
+  {
+  
+    case ESP_SLEEP_WAKEUP_EXT0 : Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+    case ESP_SLEEP_WAKEUP_EXT1 : Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
+    case ESP_SLEEP_WAKEUP_TIMER : Serial.println("Wakeup caused by timer"); break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD : Serial.println("Wakeup caused by touchpad"); break;
+    case ESP_SLEEP_WAKEUP_ULP : Serial.println("Wakeup caused by ULP program"); break;
+    default : Serial.printf("Wakeup was not caused by deep sleep: %d\n",wakeup_reason); break;
+  }
+}
 
 void BTConfirmRequestCallback(uint32_t numVal)
 {
@@ -39,17 +60,15 @@ void BTAuthCompleteCallback(boolean success)
   confirmRequestPending = false;
   if (success)
   {
-    Serial.begin(9600);
     Serial.println("Pairing success!!");
   }
   else
   {
-    Serial.begin(9600);
     Serial.println("Pairing failed, rejected by user!!");
   }
 }
 
-void tftClearScreen() {
+void tftClearScreen() {//完全清除畫面副程式
   tft.setRotation(0);
   tft.fillScreen(ST7735_BLACK);
   tft.setRotation(1);
@@ -61,38 +80,46 @@ void tftClearScreen() {
 }
 
 void tftPrintTitle() {
+  tftClearScreen();//完全清除畫面,消除邊界線用的,若未使用會殘留邊界不明像素
   tft.setRotation(0);
+  tft.setTextSize(2);
+  tft.setCursor(10,50);
+  tft.setTextColor(ST7735_YELLOW);
+  tft.println("Welcome~!");
+  delay(2000);
   tft.fillScreen(ST7735_BLACK);
   tft.setTextSize(2);
   tft.setTextColor(ST7735_YELLOW);
-  tft.setCursor(18,7);
-  tft.println(TitleSSPName);
-  delay(500);
+  tft.setCursor(17,8);
+  tft.println(SPPName);
+  delay(2000);
 }
 
 void setup() {
-  //Serial.begin(9600);
-  //while(!Serial){Serial.println("Serial Error...");}//通道測試
-  //Serial.println("started run!!");
-  
+  Serial.begin(9600);
+  //print_wakeup_reason();//印出喚醒原因
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_36,0); //設置喚醒GPIO36(按鈕C) 0=low ; 1=high
+    
   pinMode(27,OUTPUT);//背光控制腳位
   digitalWrite(27,HIGH);//拉高背光腳位;若進省電模式時要拉低。
   tft.initR(INITR_BLACKTAB);//初始化ST7735S chip
-  tftClearScreen();//完全清除畫面,消除邊界線用的,若未使用會殘留邊界不明像素
   tftPrintTitle();//初始資訊
   
-  pinMode(buttonB, INPUT);
+  pinMode(buttonA, INPUT);  //A鍵作為關機鍵
+  //pinMode(buttonB, INPUT);//暫時不用按鍵B
+  pinMode(buttonC, INPUT);  //C鍵作為藍芽配對確認鍵+關機時喚醒鍵
+  
   SerialBT.enableSSP();
   SerialBT.onConfirmRequest(BTConfirmRequestCallback);
   SerialBT.onAuthComplete(BTAuthCompleteCallback);
-  SerialBT.begin(TitleSSPName);         
+  SerialBT.begin(SPPName);//設定藍芽名稱
   
-  //初始化MPU9250 Library
-  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.begin(SDA_PIN, SCL_PIN);//初始化MPU9250 Library
   mySensor.setWire(&Wire);
   mySensor.beginAccel();
   mySensor.beginGyro();
   mySensor.beginMag();
+  
 }
 
 void loop() {
@@ -105,7 +132,6 @@ void loop() {
   } 
   else 
   {
-    Serial.begin(9600);
     Serial.println("Cannot read sensorId " + String(result));
   }
   result = mySensor.accelUpdate();
@@ -145,8 +171,7 @@ void loop() {
   //▼藍芽通訊▼
   if (confirmRequestPending)//配對機制--當配對時會顯示暗碼
   {
-    ButtonBState = digitalRead(buttonB);
-    if (ButtonBState == LOW) 
+    if (ButtonCState>=2)
     {
       SerialBT.confirmReply(true);//確認暗碼沒問題後點按IO37號的按鍵執行建立連線。
       tft.fillScreen(ST7735_BLACK);
@@ -163,7 +188,7 @@ void loop() {
       if(numValTemp!=0)
       {
         tft.println(">PN:"+(String)numValTemp);
-        tft.println(">if ok,\n You can\n Push B\n Button...");
+        tft.println(">if ok,\n You can\n Push C\n Button...");
       }
     }
   }
@@ -174,7 +199,11 @@ void loop() {
        //Serial.print(ComeValue);
        //Serial.println();
        tft.setTextColor(ST7735_BLUE);
-       tft.println("C>"+ComeValue);
+       tft.println("->"+ComeValue);
+       if(ComeValue=="LinkOk")
+       {
+          confirmRequestPending = false;
+       }
    }
    else//若沒有就持續傳遞9軸資訊過去
    {
@@ -183,6 +212,33 @@ void loop() {
       SerialBT.println(GetValue);
       //Serial.println(GetValue);//COM Port測試
    }
-     
    //▲藍芽通訊▲
+
+   //▼按鍵事件檢測▼
+   if (confirmRequestPending)//配對狀態下才可使用
+   {
+     if (digitalRead(buttonC) == LOW) 
+      {
+        ButtonCState = ButtonCState+1;
+        Serial.println("ButtonCState= " + (String)ButtonCState);
+      }
+      else
+      {
+        ButtonCState=0;
+      }
+   }
+   if (digitalRead(buttonA) == LOW) 
+   {
+      ButtonAState = ButtonAState+1;
+      Serial.println("ButtonAState= " + (String)ButtonAState);
+      if(ButtonAState>=100)//長按計數至100後休眠
+      {
+        esp_deep_sleep_start();//進入休眠
+      }
+   }
+   else
+   {
+      ButtonAState=0;
+   }
+   //▲按鍵檢測▲
 }
