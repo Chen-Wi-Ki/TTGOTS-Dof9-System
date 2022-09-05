@@ -99,7 +99,7 @@ double deltaT{0.};
 uint32_t newTime{0}, oldTime{0};
 float q[4]={0,0,0,1};
 
-//▼四元數換算+傳值,在沒有filter的情況下▼
+//▼四元數換算+傳值,在沒有filter的情況下陀螺儀積分▼
 void no_filter(float gx, float gy, float gz) {
   newTime = micros();
   deltaT = newTime - oldTime;
@@ -118,7 +118,85 @@ void no_filter(float gx, float gy, float gz) {
   GetValue = String(q[0])+"\t"+String(q[1])+"\t"+String(q[2])+"\t"+String(q[3]);
   SerialBT.println(GetValue);
 }
-//▲四元數換算+傳值,在沒有filter的情況下▲
+//▲四元數換算+傳值,在沒有filter的情況下陀螺儀積分▲
+
+//▼四元數換算+傳值,使用mahony的六軸互補式算法▼
+void mahony(float ax, float ay, float az, float gx, float gy, float gz) {
+  newTime = micros();
+  deltaT = newTime - oldTime;
+  oldTime = newTime;
+  deltaT = fabs(deltaT * 0.001 * 0.001);
+  
+  float Kp = 40.0;//9250設定40 ; 6050設定30
+  float Ki = 0.0;//暫無作用
+  
+  float recipNorm;
+  float vx, vy, vz;
+  float ex, ey, ez;  //error terms
+  float qa, qb, qc;
+  static float ix = 0.0, iy = 0.0, iz = 0.0;  //integral feedback terms
+  float tmp;
+
+  // Compute feedback only if accelerometer measurement valid (avoids NaN in accelerometer normalisation)
+  tmp = ax * ax + ay * ay + az * az;
+  if (tmp > 0.0) {
+      // Normalise accelerometer (assumed to measure the direction of gravity in body frame)
+      recipNorm = 1.0 / sqrt(tmp);
+      ax *= recipNorm;
+      ay *= recipNorm;
+      az *= recipNorm;
+
+      // Estimated direction of gravity in the body frame (factor of two divided out)
+      vx = q[1] * q[3] - q[0] * q[2];
+      vy = q[0] * q[1] + q[2] * q[3];
+      vz = q[0] * q[0] - 0.5f + q[3] * q[3];
+
+      // Error is cross product between estimated and measured direction of gravity in body frame
+      // (half the actual magnitude)
+      ex = (ay * vz - az * vy);
+      ey = (az * vx - ax * vz);
+      ez = (ax * vy - ay * vx);
+
+      // Compute and apply to gyro term the integral feedback, if enabled
+      if (Ki > 0.0f) {
+          ix += Ki * ex * deltaT;  // integral error scaled by Ki
+          iy += Ki * ey * deltaT;
+          iz += Ki * ez * deltaT;
+          gx += ix;  // apply integral feedback
+          gy += iy;
+          gz += iz;
+      }
+
+      // Apply proportional feedback to gyro term
+      gx += Kp * ex;
+      gy += Kp * ey;
+      gz += Kp * ez;
+  }
+
+  // Integrate rate of change of quaternion, q cross gyro term
+  deltaT = 0.5 * deltaT;
+  gx *= deltaT;  // pre-multiply common factors
+  gy *= deltaT;
+  gz *= deltaT;
+  qa = q[0];
+  qb = q[1];
+  qc = q[2];
+  q[0] += (-qb * gx - qc * gy - q[3] * gz);
+  q[1] += (qa * gx + qc * gz - q[3] * gy);
+  q[2] += (qa * gy - qb * gz + q[3] * gx);
+  q[3] += (qa * gz + qb * gy - qc * gx);
+
+  // renormalise quaternion
+  recipNorm = 1.0 / sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+  q[0] = q[0] * recipNorm;
+  q[1] = q[1] * recipNorm;
+  q[2] = q[2] * recipNorm;
+  q[3] = q[3] * recipNorm;
+
+  GetValue = String(q[0])+"\t"+String(q[1])+"\t"+String(q[2])+"\t"+String(q[3]);
+  SerialBT.println(GetValue);
+}
+//▲四元數換算+傳值,使用mahony的六軸互補式算法▲
 
 void setup() {
   Serial.begin(9600);
@@ -238,8 +316,8 @@ void loop() {
       //Serial.println(GetValue);//COM Port測試
       
       //轉換4元數值方法調用
-      no_filter(gX,gY,gZ);
-      
+      //no_filter(gX,gY,gZ);//陀螺儀積分
+      mahony(gX,gY,gZ,gX,gY,gZ);//使用重力校正
    }
    //▲藍芽通訊▲
 
