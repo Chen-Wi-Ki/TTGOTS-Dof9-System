@@ -1,6 +1,8 @@
-# TTGOTS-Dof9-System
+# TTGOTS-Dof9-AHRS-System
 
-使用ArduinoIDE編譯的TTGOTS開發版，版上編號是2.0，TftLcd螢幕是1.8寸，本專案是用於九軸感測與藍芽傳輸與螢幕顯示之整合開源專案，可綁在欲測物件上使用(例如:人體四肢、動物四肢、機械手臂、噴射飛彈...)，但此專案不包含陀螺儀姿態解算或軌跡預測，僅有單純9軸數據的藍芽傳輸。
+使用ArduinoIDE編譯的TTGOTS開發版，版上編號是2.0，TftLcd螢幕是1.8寸，本專案是用於九軸感測與藍芽傳輸與螢幕顯示之整合開源專案，可綁在欲測物件上使用(例如:人體四肢、動物四肢、機械手臂、噴射飛彈...
+
+此分支AHRS是基於原版main的分支，兩者不同於藍芽輸出的資料輸出不同。原版main是輸出9軸原始值+1時間序列資訊；此分支AHRS是輸出四元數值(Quaternion)。並且會嘗試不同AHRS算法間的差異，主流算法分三種:EKF/Mahony/Madgwick；以及在微機電系統裡目前最不可信其角度的陀螺儀積分，本程式來源於[Hideaki Tai](https://github.com/hideakitai/MPU9250/blob/master/MPU9250/QuaternionFilter.h)的改造，以及他參考的程式來源者[Kris Winer](https://github.com/kriswiner)，後者的文獻齊全，對9軸與6軸系統的觀念完善且可信。
 
 ![](/Image/img1.jpg)
 
